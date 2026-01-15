@@ -1,17 +1,83 @@
 import { Mistral } from '@mistralai/mistralai'
 import type { OCRResponse } from '@mistralai/mistralai/models/components/ocrresponse.js'
+import mimeTypes from 'mime-types'
 
 const MISTRAL_OCR_MODEL = 'mistral-ocr-latest'
+
+const SUPPORTED_DOCUMENT_MIME_TYPES = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
+  'text/plain',
+  'application/epub+zip',
+  'application/rtf',
+  'application/vnd.oasis.opendocument.text', // .odt
+  'application/xml',
+  'text/xml',
+  'text/x-bibtex',
+  'application/x-fictionbook+xml', // .fb2
+  'text/x-tex',
+  'text/x-opml',
+  'application/x-troff-man',
+  'application/x-ipynb+json',
+] as const
+
+const SUPPORTED_IMAGE_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/avif',
+  'image/tiff',
+  'image/gif',
+  'image/heic',
+  'image/heif',
+  'image/bmp',
+  'image/webp',
+] as const
+
+const SUPPORTED_MIME_TYPES = [
+  ...SUPPORTED_DOCUMENT_MIME_TYPES,
+  ...SUPPORTED_IMAGE_MIME_TYPES,
+] as const
+
+export type SupportedMimeType = typeof SUPPORTED_MIME_TYPES[number]
+
+export class InvalidFileTypeError extends Error {
+  constructor(mimeType: string) {
+    super(`Invalid file type: ${mimeType}. Supported types: ${SUPPORTED_MIME_TYPES.join(', ')}`)
+    this.name = 'InvalidFileTypeError'
+  }
+}
+
+export function isSupportedMimeType(mimeType: string): mimeType is SupportedMimeType {
+  return SUPPORTED_MIME_TYPES.includes(mimeType as SupportedMimeType)
+}
+
+export function validateMimeType(mimeType: string): void {
+  if (!isSupportedMimeType(mimeType)) {
+    throw new InvalidFileTypeError(mimeType)
+  }
+}
+
+export function guessMimeType(filename?: string, fallback?: string): string {
+  if (filename) {
+    const guessed = mimeTypes.lookup(filename)
+    if (guessed) return guessed
+  }
+  return fallback || 'application/pdf'
+}
 
 const toBase64 = (bytes: Uint8Array): string => {
   return Buffer.from(bytes).toString('base64')
 }
 
 export async function pdfToMarkdown(
-  pdfBytes: Uint8Array,
-  client: Mistral
+  fileBytes: Uint8Array,
+  client: Mistral,
+  mimeType: string = 'application/pdf'
 ): Promise<OCRResponse & { markdown: string }> {
-  const dataUrl = `data:application/pdf;base64,${toBase64(pdfBytes)}`
+  validateMimeType(mimeType)
+  
+  const dataUrl = `data:${mimeType};base64,${toBase64(fileBytes)}`
 
   const ocrResponse = await client.ocr.process({
     model: MISTRAL_OCR_MODEL,

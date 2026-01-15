@@ -1,7 +1,9 @@
 import { Hono } from 'hono'
 import { Mistral } from '@mistralai/mistralai'
 import { truncatePdf } from './operations/truncation.js'
-import { pdfToMarkdown } from './operations/ocr.js'
+import { pdfToMarkdown, InvalidFileTypeError, guessMimeType } from './operations/ocr.js'
+
+const GENERIC_MIME_TYPES = ['application/octet-stream', 'binary/octet-stream', '']
 
 const MAX_PAGES = 999
 const MAX_SIZE_BYTES = 49 * 1024 * 1024 // 49MB
@@ -11,7 +13,8 @@ const markdownRouter = new Hono()
 markdownRouter.post('/', async (c) => {
   try {
     const contentType = c.req.header('Content-Type') || ''
-    let pdfBytes: Uint8Array
+    let fileBytes: Uint8Array
+    let mimeType: string = 'application/pdf'
     let maxPages = MAX_PAGES
     let maxSizeBytes = MAX_SIZE_BYTES
 
@@ -27,7 +30,11 @@ markdownRouter.post('/', async (c) => {
         return c.json({ error: 'File must be a binary file, not a string' }, 400)
       }
 
-      pdfBytes = await file.bytes()
+      fileBytes = await file.bytes()
+      const providedType = file.type || ''
+      mimeType = GENERIC_MIME_TYPES.includes(providedType)
+        ? guessMimeType(file.name, providedType)
+        : providedType
       maxPages = body['maxPages'] ? parseInt(body['maxPages'] as string) : MAX_PAGES
       maxSizeBytes = body['maxSizeBytes'] ? parseInt(body['maxSizeBytes'] as string) : MAX_SIZE_BYTES
     } else {
@@ -40,11 +47,15 @@ markdownRouter.post('/', async (c) => {
 
       const response = await fetch(url)
       if (!response.ok) {
-        return c.json({ error: `Failed to fetch PDF: ${response.status}` }, 400)
+        return c.json({ error: `Failed to fetch file: ${response.status}` }, 400)
       }
 
+      const headerType = response.headers.get('Content-Type')?.split(';')[0] || ''
+      mimeType = GENERIC_MIME_TYPES.includes(headerType)
+        ? guessMimeType(url, headerType)
+        : headerType
       const arrayBuffer = await response.arrayBuffer()
-      pdfBytes = new Uint8Array(arrayBuffer)
+      fileBytes = new Uint8Array(arrayBuffer)
       maxPages = mp
       maxSizeBytes = ms
     }
@@ -55,14 +66,17 @@ markdownRouter.post('/', async (c) => {
     }
 
     const client = new Mistral({ apiKey })
-    const truncatedBytes = await truncatePdf(pdfBytes, maxPages, maxSizeBytes)
-    const result = await pdfToMarkdown(truncatedBytes, client)
+    const truncatedBytes = await truncatePdf(fileBytes, maxPages, maxSizeBytes)
+    const result = await pdfToMarkdown(truncatedBytes, client, mimeType)
 
     return c.json(result)
   } catch (error) {
-    console.error('Error converting PDF to markdown:', error)
+    if (error instanceof InvalidFileTypeError) {
+      return c.json({ error: error.message }, 400)
+    }
+    console.error('Error converting file to markdown:', error)
     return c.json({
-      error: 'Failed to convert PDF to markdown',
+      error: 'Failed to convert file to markdown',
       details: error instanceof Error ? error.message : String(error)
     }, 500)
   }
@@ -87,19 +101,26 @@ markdownRouter.get('/', async (c) => {
 
     const response = await fetch(url)
     if (!response.ok) {
-      return c.json({ error: `Failed to fetch PDF: ${response.status}` }, 400)
+      return c.json({ error: `Failed to fetch file: ${response.status}` }, 400)
     }
 
+    const headerType = response.headers.get('Content-Type')?.split(';')[0] || ''
+    const mimeType = GENERIC_MIME_TYPES.includes(headerType)
+      ? guessMimeType(url, headerType)
+      : headerType
     const arrayBuffer = await response.arrayBuffer()
-    const pdfBytes = new Uint8Array(arrayBuffer)
-    const truncatedBytes = await truncatePdf(pdfBytes, maxPages, maxSizeBytes)
-    const result = await pdfToMarkdown(truncatedBytes, client)
+    const fileBytes = new Uint8Array(arrayBuffer)
+    const truncatedBytes = await truncatePdf(fileBytes, maxPages, maxSizeBytes)
+    const result = await pdfToMarkdown(truncatedBytes, client, mimeType)
 
     return c.json(result)
   } catch (error) {
-    console.error('Error converting PDF to markdown:', error)
+    if (error instanceof InvalidFileTypeError) {
+      return c.json({ error: error.message }, 400)
+    }
+    console.error('Error converting file to markdown:', error)
     return c.json({
-      error: 'Failed to convert PDF to markdown',
+      error: 'Failed to convert file to markdown',
       details: error instanceof Error ? error.message : String(error)
     }, 500)
   }

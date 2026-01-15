@@ -72,6 +72,33 @@ vc deploy
 
 # API Documentation
 
+## Authentication
+
+All API endpoints require bearer token authentication. The token is configured via the `INTERNAL_API_KEY` environment variable.
+
+**Include the token in the `Authorization` header:**
+
+```bash
+curl -X GET "http://localhost:3000/truncate?url=..." \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+**Example (TypeScript):**
+```typescript
+const response = await fetch('http://localhost:3000/truncate', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${process.env.INTERNAL_API_KEY}`
+  },
+  body: JSON.stringify({ url: 'https://example.com/document.pdf' })
+})
+```
+
+Requests without a valid bearer token will receive a `401 Unauthorized` response.
+
+---
+
 ## PDF Truncation
 
 ### POST `/truncate`
