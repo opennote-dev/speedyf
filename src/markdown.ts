@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { Mistral } from '@mistralai/mistralai'
 import { truncateFile, FileTooLargeError } from './operations/truncation.js'
 import { pdfToMarkdown, InvalidFileTypeError, guessMimeType } from './operations/ocr.js'
@@ -8,9 +8,7 @@ const GENERIC_MIME_TYPES = ['application/octet-stream', 'binary/octet-stream', '
 const MAX_PAGES = 999
 const MAX_SIZE_BYTES = 49 * 1024 * 1024 // 49MB
 
-const markdownRouter = new Hono()
-
-markdownRouter.post('/', async (c) => {
+const markdownPost = async (c: Context) => {
   try {
     const contentType = c.req.header('Content-Type') || ''
     let fileBytes: Uint8Array
@@ -93,9 +91,9 @@ markdownRouter.post('/', async (c) => {
       details: error instanceof Error ? error.message : String(error)
     }, 500)
   }
-})
+}
 
-markdownRouter.get('/', async (c) => {
+const markdownGet = async (c: Context) => {
   try {
     const url = c.req.query('url')
     const maxPages = parseInt(c.req.query('maxPages') || String(MAX_PAGES))
@@ -150,6 +148,6 @@ markdownRouter.get('/', async (c) => {
       details: error instanceof Error ? error.message : String(error)
     }, 500)
   }
-})
+}
 
-export default markdownRouter
+export { markdownPost, markdownGet };

@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { truncateFile, FileTooLargeError } from './operations/truncation.js'
 import { guessMimeType } from './operations/ocr.js'
 
@@ -7,9 +7,7 @@ const GENERIC_MIME_TYPES = ['application/octet-stream', 'binary/octet-stream', '
 const MAX_PAGES = 1000
 const MAX_SIZE_BYTES = 50 * 1024 * 1024
 
-const truncationRouter = new Hono()
-
-truncationRouter.post('/', async (c) => {
+const truncationPost = async (c: Context) => {
   try {
     const contentType = c.req.header('Content-Type') || ''
     let fileBytes: Uint8Array
@@ -81,9 +79,9 @@ truncationRouter.post('/', async (c) => {
       details: error instanceof Error ? error.message : String(error)
     }, 500)
   }
-})
+}
 
-truncationRouter.get('/', async (c) => {
+const truncationGet = async (c: Context) => {
   try {
     const url = c.req.query('url')
     const maxPages = parseInt(c.req.query('maxPages') || String(MAX_PAGES))
@@ -125,6 +123,6 @@ truncationRouter.get('/', async (c) => {
       details: error instanceof Error ? error.message : String(error)
     }, 500)
   }
-})
+}
 
-export default truncationRouter;
+export { truncationPost, truncationGet };
