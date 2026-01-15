@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { Mistral } from '@mistralai/mistralai'
-import { truncatePdf } from './operations/truncation.js'
+import { truncateFile, FileTooLargeError } from './operations/truncation.js'
 import { pdfToMarkdown, InvalidFileTypeError, guessMimeType } from './operations/ocr.js'
 
 const GENERIC_MIME_TYPES = ['application/octet-stream', 'binary/octet-stream', '']
@@ -66,13 +66,26 @@ markdownRouter.post('/', async (c) => {
     }
 
     const client = new Mistral({ apiKey })
-    const truncatedBytes = await truncatePdf(fileBytes, maxPages, maxSizeBytes)
-    const result = await pdfToMarkdown(truncatedBytes, client, mimeType)
+    const truncationResult = await truncateFile(fileBytes, mimeType, {
+      maxPages,
+      maxSizeBytes,
+    })
+    const result = await pdfToMarkdown(truncationResult.bytes, client, mimeType)
 
-    return c.json(result)
+    return c.json({
+      ...result,
+      truncation: {
+        wasTruncated: truncationResult.wasTruncated,
+        originalSize: truncationResult.originalSize,
+        finalSize: truncationResult.finalSize,
+      },
+    })
   } catch (error) {
     if (error instanceof InvalidFileTypeError) {
       return c.json({ error: error.message }, 400)
+    }
+    if (error instanceof FileTooLargeError) {
+      return c.json({ error: error.message }, 413)
     }
     console.error('Error converting file to markdown:', error)
     return c.json({
@@ -110,13 +123,26 @@ markdownRouter.get('/', async (c) => {
       : headerType
     const arrayBuffer = await response.arrayBuffer()
     const fileBytes = new Uint8Array(arrayBuffer)
-    const truncatedBytes = await truncatePdf(fileBytes, maxPages, maxSizeBytes)
-    const result = await pdfToMarkdown(truncatedBytes, client, mimeType)
+    const truncationResult = await truncateFile(fileBytes, mimeType, {
+      maxPages,
+      maxSizeBytes,
+    })
+    const result = await pdfToMarkdown(truncationResult.bytes, client, mimeType)
 
-    return c.json(result)
+    return c.json({
+      ...result,
+      truncation: {
+        wasTruncated: truncationResult.wasTruncated,
+        originalSize: truncationResult.originalSize,
+        finalSize: truncationResult.finalSize,
+      },
+    })
   } catch (error) {
     if (error instanceof InvalidFileTypeError) {
       return c.json({ error: error.message }, 400)
+    }
+    if (error instanceof FileTooLargeError) {
+      return c.json({ error: error.message }, 413)
     }
     console.error('Error converting file to markdown:', error)
     return c.json({

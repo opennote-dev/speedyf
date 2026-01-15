@@ -1,20 +1,24 @@
 import { Hono } from 'hono'
-import { truncatePdf } from './operations/truncation.js'
+import { truncateFile, FileTooLargeError } from './operations/truncation.js'
+import { guessMimeType } from './operations/ocr.js'
+
+const GENERIC_MIME_TYPES = ['application/octet-stream', 'binary/octet-stream', '']
 
 const MAX_PAGES = 1000
 const MAX_SIZE_BYTES = 50 * 1024 * 1024
 
-const pdfRouter = new Hono()
+const truncationRouter = new Hono()
 
-pdfRouter.post('/', async (c) => {
+truncationRouter.post('/', async (c) => {
   try {
     const contentType = c.req.header('Content-Type') || ''
-    let pdfBytes: Uint8Array
+    let fileBytes: Uint8Array
+    let mimeType: string = 'application/pdf'
     let maxPages = MAX_PAGES
     let maxSizeBytes = MAX_SIZE_BYTES
+    let paragraphsPerPage: number | undefined = undefined
 
     if (contentType.includes('multipart/form-data')) {
-      // Handle file upload
       const body = await c.req.parseBody()
       const file = body['file']
 
@@ -26,12 +30,17 @@ pdfRouter.post('/', async (c) => {
         return c.json({ error: 'File must be a binary file, not a string' }, 400)
       }
 
-      pdfBytes = await file.bytes()
+      fileBytes = await file.bytes()
+      const providedType = file.type || ''
+      mimeType = GENERIC_MIME_TYPES.includes(providedType)
+        ? guessMimeType(file.name, providedType)
+        : providedType
       maxPages = body['maxPages'] ? parseInt(body['maxPages'] as string) : MAX_PAGES
       maxSizeBytes = body['maxSizeBytes'] ? parseInt(body['maxSizeBytes'] as string) : MAX_SIZE_BYTES
+      paragraphsPerPage = body['paragraphsPerPage'] ? parseInt(body['paragraphsPerPage'] as string) : undefined
     } else {
       const body = await c.req.json()
-      const { url, maxPages: mp = MAX_PAGES, maxSizeBytes: ms = MAX_SIZE_BYTES } = body
+      const { url, maxPages: mp = MAX_PAGES, maxSizeBytes: ms = MAX_SIZE_BYTES, paragraphsPerPage: ppp } = body
 
       if (!url || typeof url !== 'string') {
         return c.json({ error: 'URL is required and must be a string' }, 400)
@@ -39,36 +48,47 @@ pdfRouter.post('/', async (c) => {
 
       const response = await fetch(url)
       if (!response.ok) {
-        return c.json({ error: `Failed to fetch PDF: ${response.status}` }, 400)
+        return c.json({ error: `Failed to fetch file: ${response.status}` }, 400)
       }
 
+      const headerType = response.headers.get('Content-Type')?.split(';')[0] || ''
+      mimeType = GENERIC_MIME_TYPES.includes(headerType)
+        ? guessMimeType(url, headerType)
+        : headerType
       const arrayBuffer = await response.arrayBuffer()
-      pdfBytes = new Uint8Array(arrayBuffer)
+      fileBytes = new Uint8Array(arrayBuffer)
       maxPages = mp
       maxSizeBytes = ms
+      paragraphsPerPage = ppp
     }
 
-    const truncatedBytes = await truncatePdf(pdfBytes, maxPages, maxSizeBytes)
+    const result = await truncateFile(fileBytes, mimeType, { maxPages, maxSizeBytes, paragraphsPerPage })
 
-    return c.body(new Uint8Array(truncatedBytes), 200, {
-      'Content-Type': 'application/pdf',
-      'Content-Length': truncatedBytes.length.toString(),
-      'Content-Disposition': 'inline; filename="truncated.pdf"',
+    return c.body(new Uint8Array(result.bytes), 200, {
+      'Content-Type': mimeType,
+      'Content-Length': result.bytes.length.toString(),
+      'X-Was-Truncated': result.wasTruncated.toString(),
+      'X-Original-Size': result.originalSize.toString(),
+      'X-Final-Size': result.finalSize.toString(),
     })
   } catch (error) {
-    console.error('Error truncating PDF:', error)
+    if (error instanceof FileTooLargeError) {
+      return c.json({ error: error.message }, 413)
+    }
+    console.error('Error truncating file:', error)
     return c.json({
-      error: 'Failed to truncate PDF',
+      error: 'Failed to truncate file',
       details: error instanceof Error ? error.message : String(error)
     }, 500)
   }
 })
 
-pdfRouter.get('/', async (c) => {
+truncationRouter.get('/', async (c) => {
   try {
     const url = c.req.query('url')
     const maxPages = parseInt(c.req.query('maxPages') || String(MAX_PAGES))
     const maxSizeBytes = parseInt(c.req.query('maxSizeBytes') || String(MAX_SIZE_BYTES))
+    const paragraphsPerPage = c.req.query('paragraphsPerPage') ? parseInt(c.req.query('paragraphsPerPage')!) : undefined
 
     if (!url) {
       return c.json({ error: 'URL query parameter is required' }, 400)
@@ -76,26 +96,35 @@ pdfRouter.get('/', async (c) => {
 
     const response = await fetch(url)
     if (!response.ok) {
-      return c.json({ error: `Failed to fetch PDF: ${response.status}` }, 400)
+      return c.json({ error: `Failed to fetch file: ${response.status}` }, 400)
     }
 
+    const headerType = response.headers.get('Content-Type')?.split(';')[0] || ''
+    const mimeType = GENERIC_MIME_TYPES.includes(headerType)
+      ? guessMimeType(url, headerType)
+      : headerType
     const arrayBuffer = await response.arrayBuffer()
-    const pdfBytes = new Uint8Array(arrayBuffer)
+    const fileBytes = new Uint8Array(arrayBuffer)
 
-    const truncatedBytes = await truncatePdf(pdfBytes, maxPages, maxSizeBytes)
+    const result = await truncateFile(fileBytes, mimeType, { maxPages, maxSizeBytes, paragraphsPerPage })
 
-    return c.body(new Uint8Array(truncatedBytes), 200, {
-      'Content-Type': 'application/pdf',
-      'Content-Length': truncatedBytes.length.toString(),
-      'Content-Disposition': 'inline; filename="truncated.pdf"',
+    return c.body(new Uint8Array(result.bytes), 200, {
+      'Content-Type': mimeType,
+      'Content-Length': result.bytes.length.toString(),
+      'X-Was-Truncated': result.wasTruncated.toString(),
+      'X-Original-Size': result.originalSize.toString(),
+      'X-Final-Size': result.finalSize.toString(),
     })
   } catch (error) {
-    console.error('Error truncating PDF:', error)
+    if (error instanceof FileTooLargeError) {
+      return c.json({ error: error.message }, 413)
+    }
+    console.error('Error truncating file:', error)
     return c.json({
-      error: 'Failed to truncate PDF',
+      error: 'Failed to truncate file',
       details: error instanceof Error ? error.message : String(error)
     }, 500)
   }
 })
 
-export default pdfRouter
+export default truncationRouter;

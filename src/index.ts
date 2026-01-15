@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { bearerAuth } from 'hono/bearer-auth';
-import truncateRouter from './truncate.js'
+import truncationRouter from './truncate.js'
 import markdownRouter from './markdown.js'
 
 const app = new Hono();
@@ -12,7 +12,7 @@ app.get('/', (c) => {
 
 app.use("*", bearerAuth({ token: process.env.INTERNAL_API_KEY ?? '' }))
 
-app.route('/truncate', truncateRouter)
+app.route('/truncate', truncationRouter)
 app.route('/markdown', markdownRouter)
 
 export default app

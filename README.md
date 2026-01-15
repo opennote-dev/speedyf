@@ -11,15 +11,11 @@ Contrary to the name, SpeedyF is not just for PDFs, but can be used to manipulat
 | PDF | `.pdf` | `application/pdf` |
 | Word | `.docx` | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` |
 | PowerPoint | `.pptx` | `application/vnd.openxmlformats-officedocument.presentationml.presentation` |
-| Text | `.txt` | `text/plain` |
 | EPUB | `.epub` | `application/epub+zip` |
 | RTF | `.rtf` | `application/rtf` |
 | OpenDocument Text | `.odt` | `application/vnd.oasis.opendocument.text` |
-| XML DocBook / JATS XML | `.xml` | `application/xml` or `text/xml` |
-| BibTeX/BibLaTeX | `.bib` | `text/x-bibtex` |
+| XML DocBook / JATS XML / OPML | `.xml` or `.opml` | `application/xml` |
 | FictionBook | `.fb2` | `application/x-fictionbook+xml` |
-| LaTeX | `.tex` | `text/x-tex` |
-| OPML | `.opml` | `text/x-opml` or `application/xml` |
 | Troff man pages | `.1`, `.man` | `application/x-troff-man` |
 | Jupyter notebooks | `.ipynb` | `application/x-ipynb+json` |
 
@@ -46,6 +42,7 @@ cp .env.example .env.local
 # or 
 vc env pull
 ```
+> A `MISTRAL_API_KEY` is required for the `markdown` endpoint. You can make an API account and keys [here](https://console.mistral.ai/home?workspace_dialog=apiKeys).
 
 ```
 bun install
@@ -99,11 +96,11 @@ Requests without a valid bearer token will receive a `401 Unauthorized` response
 
 ---
 
-## PDF Truncation
+## File Truncation
 
 ### POST `/truncate`
 
-Truncate a PDF to fit within specified page count and file size limits using binary search optimization.
+Truncate files to fit within specified page count and file size limits. For PDFs, uses binary search optimization. For DOCX files, truncates based on paragraph count with a configurable heuristic for pages-to-paragraphs conversion.
 
 **Accepts both JSON with URL and multipart file upload:**
 
@@ -123,9 +120,10 @@ curl -X POST http://localhost:3000/truncate \
 **Request Body:**
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `url` | string | Yes | - | URL of the PDF to truncate |
+| `url` | string | Yes | - | URL of the file to truncate |
 | `maxPages` | number | No | 1000 | Maximum number of pages |
 | `maxSizeBytes` | number | No | 52428800 (50MB) | Maximum file size in bytes |
+| `paragraphsPerPage` | number | No | 15 | (DOCX only) Paragraphs per page heuristic for estimating page count |
 
 #### Option 2: Multipart File Upload
 
@@ -140,13 +138,18 @@ curl -X POST http://localhost:3000/truncate \
 **Form Fields:**
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `file` | File | Yes | - | PDF file to truncate |
+| `file` | File | Yes | - | File to truncate |
 | `maxPages` | string | No | "1000" | Maximum number of pages |
 | `maxSizeBytes` | string | No | "52428800" | Maximum file size in bytes |
+| `paragraphsPerPage` | string | No | "15" | (DOCX only) Paragraphs per page heuristic for estimating page count |
 
 **Response:**
-- **Content-Type:** `application/pdf`
-- **Body:** Binary PDF data (truncated)
+- **Content-Type:** Matches input file MIME type
+- **Body:** Binary file data (truncated)
+- **Headers:**
+  - `X-Was-Truncated`: `"true"` or `"false"`
+  - `X-Original-Size`: Original file size in bytes
+  - `X-Final-Size`: Final file size in bytes
 
 **Example (TypeScript):**
 ```typescript
@@ -159,25 +162,26 @@ const response = await fetch('http://localhost:3000/truncate', {
     maxPages: 500
   })
 })
-const pdfBlob = await response.blob()
+const fileBlob = await response.blob()
 
 // With File Upload
 const formData = new FormData()
-formData.append('file', Bun.file('/path/to/document.pdf'))
-formData.append('maxPages', '500')
+formData.append('file', Bun.file('/path/to/document.docx'))
+formData.append('maxPages', '10')
+formData.append('paragraphsPerPage', '20')  // Adjust if document has dense formatting
 
 const response = await fetch('http://localhost:3000/truncate', {
   method: 'POST',
   body: formData
 })
-const pdfBlob = await response.blob()
+const docxBlob = await response.blob()
 ```
 
 ---
 
 ### GET `/truncate`
 
-Truncate a PDF from a URL using query parameters.
+Truncate a file from a URL using query parameters.
 
 **Request:**
 ```bash
@@ -187,9 +191,10 @@ curl -X GET "http://localhost:3000/truncate?url=https://example.com/document.pdf
 **Query Parameters:**
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `url` | string | Yes | - | URL of the PDF to truncate |
+| `url` | string | Yes | - | URL of the file to truncate |
 | `maxPages` | number | No | 1000 | Maximum number of pages |
 | `maxSizeBytes` | number | No | 52428800 (50MB) | Maximum file size in bytes |
+| `paragraphsPerPage` | number | No | 15 | (DOCX only) Paragraphs per page heuristic for estimating page count |
 
 **Response:**
 Same as POST `/truncate` above.
@@ -198,7 +203,12 @@ Same as POST `/truncate` above.
 ```typescript
 const url = 'https://example.com/document.pdf'
 const response = await fetch(`http://localhost:3000/truncate?url=${encodeURIComponent(url)}&maxPages=500`)
-const pdfBlob = await response.blob()
+const fileBlob = await response.blob()
+
+// For DOCX with custom paragraphs per page
+const docxUrl = 'https://example.com/document.docx'
+const response2 = await fetch(`http://localhost:3000/truncate?url=${encodeURIComponent(docxUrl)}&maxPages=10&paragraphsPerPage=20`)
+const docxBlob = await response2.blob()
 ```
 
 ---
