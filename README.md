@@ -215,7 +215,7 @@ const docxBlob = await response2.blob()
 
 ### POST `/truncate/stream`
 
-Stream large files (up to ~100MB) for truncation without size limits. This endpoint accepts files via streaming using `application/octet-stream` or `multipart/form-data` content types.
+Stream large files for truncation without size limits. This endpoint accepts files via streaming using `application/octet-stream` or `multipart/form-data` content types.
 
 **Request:**
 ```bash
