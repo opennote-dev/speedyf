@@ -1,8 +1,10 @@
-import mammoth from "mammoth";
+import * as mammoth from "../lib/mammoth.browser.js";
 import TurndownService from "turndown";
 
 export async function docxToMarkdown(fileBuffer: Uint8Array): Promise<string> {
   try {
+    const td = new TurndownService();
+
     const result = await mammoth.convertToHtml(
       { buffer: Buffer.from(fileBuffer) },
       {
@@ -17,8 +19,7 @@ export async function docxToMarkdown(fileBuffer: Uint8Array): Promise<string> {
       },
     );
 
-    const turndownService = new TurndownService();
-    const markdown = turndownService.turndown(result.value);
+    const markdown = td.turndown(result.value);
 
     return markdown;
   } catch (error) {

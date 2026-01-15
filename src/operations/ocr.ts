@@ -2,6 +2,7 @@ import { Mistral } from "@mistralai/mistralai";
 import type { OCRResponse } from "@mistralai/mistralai/models/components/ocrresponse.js";
 import mimeTypes from "mime-types";
 import { docxToMarkdown } from "./docx.js";
+import { truncateFile } from "./truncation.js";
 import { extractPptx, pptxToMarkdown } from "./pptx.js";
 
 const MISTRAL_OCR_MODEL = "mistral-ocr-latest";
@@ -88,7 +89,20 @@ export async function pdfToMarkdown(
   fileBytes: Uint8Array,
   client: Mistral,
   mimeType: string = "application/pdf",
-): Promise<OCRResponse & { markdown: string; message?: string }> {
+  maxPages: number,
+  maxSizeBytes: number,
+): Promise<
+  OCRResponse & {
+    markdown: string;
+    message?: string;
+  } & {
+    truncation: {
+      wasTruncated: boolean;
+      originalSize: number;
+      finalSize: number;
+    };
+  }
+> {
   validateMimeType(mimeType);
 
   if (isTextMimeType(mimeType)) {
@@ -106,6 +120,11 @@ export async function pdfToMarkdown(
       model: "text-passthrough",
       usageInfo: { pagesProcessed: 1, docSizeBytes: fileBytes.length },
       message: "You should think about why a text file needs OCR",
+      truncation: {
+        wasTruncated: false,
+        originalSize: fileBytes.length,
+        finalSize: fileBytes.length,
+      },
     };
   }
 
@@ -129,6 +148,11 @@ export async function pdfToMarkdown(
           ],
           model: "mammoth-converter",
           usageInfo: { pagesProcessed: 1, docSizeBytes: fileBytes.length },
+          truncation: {
+            wasTruncated: false,
+            originalSize: fileBytes.length,
+            finalSize: fileBytes.length,
+          },
         };
       }
       console.warn(
@@ -164,6 +188,11 @@ export async function pdfToMarkdown(
             pagesProcessed: parsed.slides.length,
             docSizeBytes: fileBytes.length,
           },
+          truncation: {
+            wasTruncated: false,
+            originalSize: fileBytes.length,
+            finalSize: fileBytes.length,
+          },
         };
       }
       console.warn(
@@ -174,7 +203,12 @@ export async function pdfToMarkdown(
     }
   }
 
-  const dataUrl = `data:${mimeType};base64,${toBase64(fileBytes)}`;
+  const truncationResult = await truncateFile(fileBytes, mimeType, {
+    maxPages,
+    maxSizeBytes,
+  });
+
+  const dataUrl = `data:${mimeType};base64,${toBase64(truncationResult.bytes)}`;
 
   const ocrResponse = await client.ocr.process({
     model: MISTRAL_OCR_MODEL,
@@ -194,5 +228,10 @@ export async function pdfToMarkdown(
   return {
     markdown,
     ...ocrResponse,
+    truncation: {
+      wasTruncated: truncationResult.wasTruncated,
+      originalSize: truncationResult.originalSize,
+      finalSize: truncationResult.finalSize,
+    },
   };
 }

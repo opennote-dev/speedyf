@@ -17,6 +17,7 @@ const GENERIC_MIME_TYPES = [
 const markdownPost = async (c: Context) => {
   try {
     const contentType = c.req.header("Content-Type") || "";
+
     let fileBytes: Uint8Array;
     let mimeType: string = "application/pdf";
     let maxPages = DEFAULT_MAX_PAGES;
@@ -38,13 +39,17 @@ const markdownPost = async (c: Context) => {
       }
 
       fileBytes = await file.bytes();
+
       const providedType = file.type || "";
+
       mimeType = GENERIC_MIME_TYPES.includes(providedType)
         ? guessMimeType(file.name, providedType)
         : providedType;
+
       maxPages = body["maxPages"]
         ? parseInt(body["maxPages"] as string)
         : DEFAULT_MAX_PAGES;
+
       maxSizeBytes = body["maxSizeBytes"]
         ? parseInt(body["maxSizeBytes"] as string)
         : DEFAULT_MAX_FILE_SIZE_BYTES;
@@ -73,6 +78,7 @@ const markdownPost = async (c: Context) => {
       mimeType = GENERIC_MIME_TYPES.includes(headerType)
         ? guessMimeType(url, headerType)
         : headerType;
+      
       const arrayBuffer = await response.arrayBuffer();
       fileBytes = new Uint8Array(arrayBuffer);
       maxPages = mp;
@@ -88,36 +94,16 @@ const markdownPost = async (c: Context) => {
     }
 
     const client = new Mistral({ apiKey });
-    const truncationResult = await truncateFile(fileBytes, mimeType, {
-      maxPages,
-      maxSizeBytes,
-    });
-    const result = await pdfToMarkdown(
-      truncationResult.bytes,
-      client,
-      mimeType,
-    );
 
-    return c.json({
-      ...result,
-      truncation: {
-        wasTruncated: truncationResult.wasTruncated,
-        originalSize: truncationResult.originalSize,
-        finalSize: truncationResult.finalSize,
-      },
-    });
+    const result = await pdfToMarkdown(fileBytes, client, mimeType, maxPages, maxSizeBytes);
+
+    return c.json(result);
   } catch (error) {
-    if (error instanceof InvalidFileTypeError) {
-      return c.json({ error: error.message }, 400);
-    }
-    if (error instanceof FileTooLargeError) {
-      return c.json({ error: error.message }, 413);
-    }
-    console.error("Error converting file to markdown:", error);
     return c.json(
       {
         error: "Failed to convert file to markdown",
         details: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
       },
       500,
     );
@@ -168,6 +154,8 @@ const markdownGet = async (c: Context) => {
       truncationResult.bytes,
       client,
       mimeType,
+      maxPages,
+      maxSizeBytes
     );
 
     return c.json({

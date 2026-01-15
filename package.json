@@ -8,7 +8,6 @@
     "@types/turndown": "^5.0.6",
     "hono": "^4.8.9",
     "jszip": "^3.10.1",
-    "mammoth": "^1.11.0",
     "mime-types": "^3.0.2",
     "pdf-lib": "^1.17.1",
     "turndown": "^7.2.2",
