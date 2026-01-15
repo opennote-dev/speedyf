@@ -1,9 +1,8 @@
 import mammoth from "mammoth";
-import { NodeHtmlMarkdown } from "node-html-markdown";
+import TurndownService from "turndown";
 
 export async function docxToMarkdown(fileBuffer: Uint8Array): Promise<string> {
   try {
-
     const result = await mammoth.convertToHtml(
       { buffer: Buffer.from(fileBuffer) },
       {
@@ -18,11 +17,8 @@ export async function docxToMarkdown(fileBuffer: Uint8Array): Promise<string> {
       },
     );
 
-    const markdown = NodeHtmlMarkdown.translate(result.value, {
-      useLinkReferenceDefinitions: false,
-      useInlineLinks: true,
-      maxConsecutiveNewlines: 3,
-    });
+    const turndownService = new TurndownService();
+    const markdown = turndownService.turndown(result.value);
 
     return markdown;
   } catch (error) {
