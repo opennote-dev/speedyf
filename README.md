@@ -213,9 +213,66 @@ const docxBlob = await response2.blob()
 
 ---
 
+### POST `/truncate/stream`
+
+Stream large files (up to ~100MB) for truncation without size limits. This endpoint accepts files via streaming using `application/octet-stream` or `multipart/form-data` content types.
+
+**Request:**
+```bash
+curl -X POST http://localhost:3000/truncate/stream \
+  -H "Content-Type: application/octet-stream" \
+  -H "X-File-MimeType: application/pdf" \
+  -H "X-Max-Pages: 1000" \
+  -H "X-Max-Size-Bytes: 4194304" \
+  -H "X-File-Name: document.pdf" \
+  --data-binary "@/path/to/large-document.pdf"
+```
+
+**Request Headers:**
+| Header | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `Content-Type` | string | Yes | - | Must be `application/octet-stream` or `multipart/form-data` |
+| `X-File-MimeType` | string | No | "application/pdf" | MIME type of the file |
+| `X-Max-Pages` | string | No | "1000" | Maximum number of pages |
+| `X-Max-Size-Bytes` | string | No | "4194304" (4MB) | Maximum size per chunk in bytes |
+| `X-Paragraphs-Per-Page` | string | No | "15" | (DOCX only) Paragraphs per page heuristic |
+| `X-File-Name` | string | No | "" | Filename for MIME type detection |
+
+**Response:**
+- **Content-Type:** Matches input file MIME type
+- **Body:** Binary file data (truncated)
+- **Headers:**
+  - `X-Was-Truncated`: `"true"` or `"false"`
+  - `X-Original-Size`: Original file size in bytes
+  - `X-Final-Size`: Final file size in bytes
+
+**Example (TypeScript):**
+```typescript
+// Stream a large file
+const fileBuffer = await Bun.file('/path/to/large-document.pdf').arrayBuffer()
+
+const response = await fetch('http://localhost:3000/truncate/stream', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/octet-stream',
+    'X-File-MimeType': 'application/pdf',
+    'X-Max-Pages': '1000',
+    'X-Max-Size-Bytes': '4194304',
+    'X-File-Name': 'large-document.pdf'
+  },
+  body: fileBuffer
+})
+
+const truncatedBlob = await response.blob()
+const wasTruncated = response.headers.get('X-Was-Truncated') === 'true'
+console.log('Was truncated:', wasTruncated)
+```
+
+---
+
 ## PDF to Markdown (OCR)
 
-Convert PDFs to markdown using Mistral's OCR API. PDFs are automatically truncated to 999 pages or 49MB before processing.
+Convert PDFs to markdown using [Mistral's OCR API](https://docs.mistral.ai/capabilities/document_ai/basic_ocr). PDFs are automatically truncated to 999 pages or 49MB before processing.
 
 ### POST `/markdown`
 
@@ -318,4 +375,73 @@ const url = 'https://example.com/document.pdf'
 const response = await fetch(`http://localhost:3000/markdown?url=${encodeURIComponent(url)}&maxPages=500`)
 const { markdown, ...remainingFields } = await response.json()
 console.log(markdown)
+```
+
+---
+
+### POST `/markdown/stream`
+
+Stream large files (up to ~100MB) for OCR conversion without document size limits. This endpoint accepts files via streaming using `application/octet-stream` or `multipart/form-data` content types.
+
+**Request:**
+```bash
+curl -X POST http://localhost:3000/markdown/stream \
+  -H "Content-Type: application/octet-stream" \
+  -H "X-File-MimeType: application/pdf" \
+  -H "X-Max-Pages: 999" \
+  -H "X-Max-Size-Bytes: 4194304" \
+  -H "X-File-Name: document.pdf" \
+  --data-binary "@/path/to/large-document.pdf"
+```
+
+**Request Headers:**
+| Header | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `Content-Type` | string | Yes | - | Must be `application/octet-stream` or `multipart/form-data` |
+| `X-File-MimeType` | string | No | "application/pdf" | MIME type of the file |
+| `X-Max-Pages` | string | No | "999" | Maximum number of pages |
+| `X-Max-Size-Bytes` | string | No | "4194304" (4MB) | Maximum size per chunk in bytes |
+| `X-File-Name` | string | No | "" | Filename for MIME type detection |
+
+**Response:**
+```json
+{
+  "markdown": "# Extracted content...",
+  "truncation": {
+    "wasTruncated": true,
+    "originalSize": 104857600,
+    "finalSize": 4194304
+  },
+  ...remainingFields
+}
+```
+
+**Response Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `markdown` | string | Extracted markdown content with pages separated by `---` |
+| `truncation` | object | Truncation metadata (wasTruncated, originalSize, finalSize) |
+| `remainingFields` | object | Additional fields from Mistral OCR Response |
+
+**Example (TypeScript):**
+```typescript
+// Stream a large file for OCR
+const fileBuffer = await Bun.file('/path/to/large-document.pdf').arrayBuffer()
+
+const response = await fetch('http://localhost:3000/markdown/stream', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/octet-stream',
+    'X-File-MimeType': 'application/pdf',
+    'X-Max-Pages': '999',
+    'X-Max-Size-Bytes': '4194304',
+    'X-File-Name': 'large-document.pdf'
+  },
+  body: fileBuffer
+})
+
+const { markdown, truncation, ...remainingFields } = await response.json()
+console.log('Markdown:', markdown)
+console.log('Was truncated:', truncation.wasTruncated)
+console.log('Original size:', truncation.originalSize)
 ```
