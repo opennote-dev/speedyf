@@ -1,6 +1,8 @@
 import { Mistral } from "@mistralai/mistralai";
 import type { OCRResponse } from "@mistralai/mistralai/models/components/ocrresponse.js";
 import mimeTypes from "mime-types";
+import { docxToMarkdown } from "./docx.js";
+import { extractPptx, pptxToMarkdown } from "./pptx.js";
 
 const MISTRAL_OCR_MODEL = "mistral-ocr-latest";
 
@@ -105,6 +107,71 @@ export async function pdfToMarkdown(
       usageInfo: { pagesProcessed: 1, docSizeBytes: fileBytes.length },
       message: "You should think about why a text file needs OCR",
     };
+  }
+
+  if (
+    mimeType ===
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ) {
+    try {
+      const markdown = await docxToMarkdown(fileBytes);
+
+      if (markdown.trim().length >= 100) {
+        return {
+          markdown,
+          pages: [
+            {
+              markdown,
+              index: 0,
+              images: [],
+              dimensions: { width: 0, height: 0, dpi: 0 },
+            },
+          ],
+          model: "mammoth-converter",
+          usageInfo: { pagesProcessed: 1, docSizeBytes: fileBytes.length },
+        };
+      }
+      console.warn(
+        "DOCX conversion resulted in <100 characters, falling back to Mistral OCR",
+      );
+    } catch (error) {
+      console.error(
+        "Error converting DOCX with mammoth, falling back to Mistral:",
+        error,
+      );
+    }
+  }
+
+  if (
+    mimeType ===
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+  ) {
+    try {
+      const parsed = await extractPptx(fileBytes);
+      const markdown = pptxToMarkdown(parsed);
+
+      if (markdown.trim().length >= 100) {
+        return {
+          markdown,
+          pages: parsed.slides.map((slide, index) => ({
+            markdown: slide.content.map((c) => c.text.join(" ")).join("\n"),
+            index,
+            images: [],
+            dimensions: { width: 0, height: 0, dpi: 0 },
+          })),
+          model: "pptx-converter",
+          usageInfo: {
+            pagesProcessed: parsed.slides.length,
+            docSizeBytes: fileBytes.length,
+          },
+        };
+      }
+      console.warn(
+        "PPTX conversion resulted in <100 characters, falling back to Mistral OCR",
+      );
+    } catch (error) {
+      console.error("Error converting PPTX, falling back to Mistral:", error);
+    }
   }
 
   const dataUrl = `data:${mimeType};base64,${toBase64(fileBytes)}`;
