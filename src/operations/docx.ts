@@ -1,12 +1,21 @@
 import * as mammoth from "../lib/mammoth.browser.js";
 import TurndownService from "turndown";
 
+function toArrayBuffer(u8: Uint8Array): ArrayBuffer {
+  return u8.byteOffset === 0 && u8.byteLength === u8.buffer.byteLength
+    ? (u8.buffer as ArrayBuffer)
+    : (u8.buffer.slice(
+        u8.byteOffset,
+        u8.byteOffset + u8.byteLength,
+      ) as ArrayBuffer);
+}
+
 export async function docxToMarkdown(fileBuffer: Uint8Array): Promise<string> {
   try {
     const td = new TurndownService();
 
     const result = await mammoth.convertToHtml(
-      { buffer: Buffer.from(fileBuffer) },
+      { arrayBuffer: toArrayBuffer(fileBuffer) },
       {
         styleMap: [
           "p[style-name='Heading 1'] => h1:fresh",

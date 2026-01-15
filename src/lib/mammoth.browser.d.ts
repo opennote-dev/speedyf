@@ -1,6 +1,5 @@
 export interface ConvertToHtmlOptions {
   arrayBuffer?: ArrayBuffer;
-  buffer?: Buffer;
   styleMap?: string[];
 }
 
